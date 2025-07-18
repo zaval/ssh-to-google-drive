@@ -49,11 +49,12 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
             if (file == nullptr) {
                 return;
             }
+            FileChunkResponse upload_chunk_response{};
             while (offset < size) {
                 read_bytes = 0;
                 auto buffer = new char[chunk_size];
                 sftp->read_file(read_bytes, file, buffer, chunk_size);
-                gapi->upload_file_chunk(upload_url, buffer, read_bytes, offset, size);
+                upload_chunk_response = gapi->upload_file_chunk(upload_url, buffer, read_bytes, offset, size);
                 offset += read_bytes;
                 if (has_inderactive_console) {
                     auto percent = offset * 100 / size;
@@ -70,9 +71,24 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
             if (has_inderactive_console)
                 std::cout << std::endl;
 
+            const auto md5_checksum = md5.hexdigest();
+            if (upload_chunk_response.success && !upload_chunk_response.file_id.empty()) {
+                const auto file_md5 = gapi->get_file_md5(upload_chunk_response.file_id);
+                if (file_md5 == md5_checksum) {
+                    spdlog::info("Checksum correct {}/{}", path, entry.name);
+                } else {
+                    spdlog::error("MD5 mismatch for {}/{}: {} != {}", path, entry.name, file_md5, md5_checksum);
+                    return;
+
+                }
+            } else {
+                spdlog::error("Cannot upload file {}", entry.name);
+                // std::cerr << "Cannot upload file " << entry.name << std::endl;
+                return;
+            }
             sftp->close_file(file);
             std::ofstream ofs("md5files.txt", std::ios::app);
-            ofs << md5.hexdigest() << "\t" << path << "/" << entry.name << std::endl;
+            ofs << md5_checksum << "\t" << path << "/" << entry.name << std::endl;
         }
     }
 
@@ -87,7 +103,7 @@ int main(int argc, char **argv) {
     spdlog::flush_every(std::chrono::seconds(3));
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("logs/log.txt", true);
-    spdlog::logger logger("multi_sink", {console_sink, file_sink});
+    spdlog::logger logger("ssh_to_gdrive", {console_sink, file_sink});
     spdlog::set_default_logger(std::make_shared<spdlog::logger>(logger));
 
     const auto debian_frontend = getenv("DEBIAN_FRONTEND");

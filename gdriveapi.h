@@ -8,6 +8,11 @@
 const std::string GOOGLE_DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code";
 const std::string GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+struct FileChunkResponse {
+    bool success;
+    std::string file_id;
+};
+
 
 /**
  * @class GDriveAPI
@@ -159,9 +164,22 @@ public:
      * @param size The size of the current chunk being uploaded.
      * @param offset The position of the chunk within the file (in bytes).
      * @param total_size The total size of the file (in bytes).
-     * @return True if the chunk is successfully uploaded, otherwise false.
+     * @return {true, file_id} if the chunk is successfully uploaded, otherwise false.
      */
-    bool upload_file_chunk(const std::string& upload_url, char *data, size_t size, size_t offset, size_t total_size);
+    FileChunkResponse upload_file_chunk(const std::string& upload_url, char *data, size_t size, size_t offset, size_t total_size);
+
+
+    /**
+     * @fn std::string get_file_md5(const std::string& file_path)
+     * @brief Computes the MD5 hash of the specified file.
+     *
+     * This function reads the contents of the given file and calculates its MD5 checksum.
+     * It is useful for verifying file integrity or comparing files based on their content.
+     *
+     * @param file_id The Google Drive's file id whose MD5 hash needs to be calculated.
+     * @return A string representing the MD5 hash of the file.
+     */
+    std::string get_file_md5(const std::string& file_id);
 
 
 private:

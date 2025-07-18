@@ -318,12 +318,12 @@ std::string GDriveAPI::create_file_for_upload(const std::string &filename, const
     }
 }
 
-bool GDriveAPI::upload_file_chunk(const std::string &upload_url, char *data, size_t size, size_t offset,
+FileChunkResponse GDriveAPI::upload_file_chunk(const std::string &upload_url, char *data, size_t size, size_t offset,
     size_t total_size) {
     if (access_token.empty()) {
         spdlog::error("Not authorized. Please call authorize() first.");
         // std::cerr << "Not authorized. Please call authorize() first." << std::endl;
-        return false;
+        return {false, ""};
     }
 
     // Check if the token has expired, and if so, refresh it.
@@ -331,7 +331,7 @@ bool GDriveAPI::upload_file_chunk(const std::string &upload_url, char *data, siz
         if (!refresh_access_token()) {
             spdlog::error("Could not refresh token. Please re-authorize.");
             // std::cerr << "Could not refresh token. Please re-authorize." << std::endl;
-            return false;
+            return {false, ""};
         }
     }
 
@@ -349,19 +349,64 @@ bool GDriveAPI::upload_file_chunk(const std::string &upload_url, char *data, siz
     if (r.status_code != 200 && r.status_code != 201 && r.status_code != 308) {
         spdlog::error("Error uploading file chunk: {}", r.status_code);
         // std::cerr << "Error uploading file chunk: " << r.status_code << std::endl << r.text << std::endl;
-        return false;
+        return {false, ""};
     }
 
-    // if (r.status_code == 200) {
-    //     spdlog::info("File chunk uploaded successfully");
-    //     // std::cout << "File uploaded successfully" << std::endl;
-    // }
+    if (r.status_code == 200) {
+        const auto response = nlohmann::json::parse(r.text);
+        if (response.contains("id")) {
+            return {true, response["id"].get<std::string>()};
+        } else {
+            return {true, ""};
+        }
+        // spdlog::info("File chunk uploaded successfully");
+        // std::cout << "File uploaded successfully" << std::endl;
+    }
 
     // std::cout << "Upload chunk response: " << r.status_code << std::endl << r.text << std::endl;
     // for (const auto& header : r.header) {
     //     std::cout << header.first << ": " << header.second << std::endl;
     // }
-    return true;
+    return {true, ""};
+}
+
+std::string GDriveAPI::get_file_md5(const std::string &file_id) {
+    if (access_token.empty()) {
+        spdlog::error("Not authorized. Please call authorize() first.");
+        // std::cerr << "Not authorized. Please call authorize() first." << std::endl;
+        return "";
+    }
+
+    // Check if the token has expired, and if so, refresh it.
+    if (is_token_expired()) {
+        if (!refresh_access_token()) {
+            spdlog::error("Could not refresh token. Please re-authorize.");
+            // std::cerr << "Could not refresh token. Please re-authorize." << std::endl;
+            return "";
+        }
+    }
+
+    cpr::Response r = cpr::Get(cpr::Url{"https://www.googleapis.com/drive/v3/files/" + file_id},
+                               cpr::Header{{"Authorization", "Bearer " + this->access_token}},
+                               cpr::Header{{"Accept", "application/json"}},
+                               cpr::Parameters{{"fields", "md5Checksum"}}
+                               );
+
+    if (r.status_code == 200) {
+        // std::cout << "Successfully fetched file list:" << std::endl;
+        const auto response = nlohmann::json::parse(r.text);
+        if (response.contains("md5Checksum")) {
+            return response["md5Checksum"].get<std::string>();
+        } else {
+            return "";
+        }
+    } else {
+        spdlog::error("Error fetching file md5: {}", r.status_code);
+        // std::cerr << "Error fetching files: " << r.status_code << std::endl;
+        spdlog::error("Error message: {}", r.text);
+        // std::cerr << r.text << std::endl;
+        return "";
+    }
 }
 
 bool GDriveAPI::authorize_from_service_account() {
