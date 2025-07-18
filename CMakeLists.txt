@@ -67,7 +67,7 @@ set_target_properties(ssh_to_gdrive PROPERTIES
 )
 
 
-install(TARGETS ssh_to_gdrive cpr
+install(TARGETS ssh_to_gdrive cpr spdlog
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
