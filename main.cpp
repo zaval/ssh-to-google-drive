@@ -31,6 +31,7 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
             directories.push_back(path + "/" + entry.name);
         } else {
 
+            spdlog::info("Processing file {}/", path, entry.name);
             const auto md5 = MD5();
             size_t offset = 0;
             long read_bytes = 0;
@@ -40,13 +41,14 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
             if (upload_url.empty()) {
                 spdlog::error("Cannot create upload url for {}", entry.name);
                 // std::cerr << "Error creating upload url" << std::endl;
-                return;
+                continue;
             }
 
             const auto file_path = path + "/" + entry.name;
 
             auto file = sftp->open_file(file_path,O_RDONLY);
             if (file == nullptr) {
+                spdlog::error("Cannot open file {}", file_path);
                 return;
             }
             FileChunkResponse upload_chunk_response{};
@@ -78,13 +80,15 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
                     spdlog::info("Checksum correct {}/{}", path, entry.name);
                 } else {
                     spdlog::error("MD5 mismatch for {}/{}: {} != {}", path, entry.name, file_md5, md5_checksum);
-                    return;
+                    sftp->close_file(file);
+                    continue;
 
                 }
             } else {
                 spdlog::error("Cannot upload file {}", entry.name);
+                sftp->close_file(file);
                 // std::cerr << "Cannot upload file " << entry.name << std::endl;
-                return;
+                continue;
             }
             sftp->close_file(file);
             std::ofstream ofs("md5files.txt", std::ios::app);
