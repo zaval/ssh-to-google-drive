@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <cstring>
+#include <regex>
 
 #include "spdlog/spdlog.h"
 
@@ -82,7 +83,12 @@ std::vector<SFTPEntry> SFTPClient::ls(const std::string &path) {
             sftp_attributes_free(attributes);
             continue;
         }
-        if (std::ranges::find(ignore_files, attributes->name) != ignore_files.end()) {
+        // if (std::ranges::find(ignore_files, attributes->name) != ignore_files.end()) {
+        if (std::ranges::find_if(ignore_files, [&attributes](const std::string &val) {
+            std::regex self_regex(val,
+            std::regex_constants::ECMAScript | std::regex_constants::icase);
+            return std::regex_search(attributes->name, self_regex);
+        }) != ignore_files.end()) {
             spdlog::info("Ignore file: {}", attributes->name);
             // std::cout << "Ignore file: " << attributes->name << std::endl;
             sftp_attributes_free(attributes);
