@@ -18,7 +18,7 @@
 namespace fs = std::filesystem;
 
 constexpr size_t chunk_size = 512 * 1024;
-bool has_inderactive_console = true;
+bool has_interactive_console = true;
 
 
 void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI* gapi, const std::string& gdrive_folder) {
@@ -31,15 +31,22 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
             directories.push_back(path + "/" + entry.name);
         } else {
 
-            spdlog::info("Processing file {}/", path, entry.name);
+            const auto size = entry.size;
+            spdlog::info("Processing file {}/{} size: {}", path, entry.name, std::to_string(size));
+
+            if (size == 0) {
+                spdlog::info("Empty file {}/{}", path, entry.name);
+                gapi->create_file(entry.name, "text/plain", gdrive_folder);
+                continue;
+            }
+
             const auto md5 = MD5();
             size_t offset = 0;
             long read_bytes = 0;
-            const auto size = entry.size;
 
             const auto upload_url = gapi->create_file_for_upload(entry.name, gdrive_folder);
             if (upload_url.empty()) {
-                spdlog::error("Cannot create upload url for {}", entry.name);
+                spdlog::error("Cannot create upload url for {}/{}", path, entry.name);
                 // std::cerr << "Error creating upload url" << std::endl;
                 continue;
             }
@@ -58,11 +65,10 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
                 sftp->read_file(read_bytes, file, buffer, chunk_size);
                 upload_chunk_response = gapi->upload_file_chunk(upload_url, buffer, read_bytes, offset, size);
                 offset += read_bytes;
-                if (has_inderactive_console) {
+                if (has_interactive_console) {
                     auto percent = offset * 100 / size;
                     std::cout << "\r\x1b[2K" << entry.name << " " << percent << "% (" << offset << "/" << size << ")" << std::flush;
                 }
-
 
                 if (!md5.update(buffer, read_bytes)) {
                     spdlog::error("Cannot update md5 for {}", entry.name);
@@ -70,7 +76,7 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
                 }
                 delete[] buffer;
             }
-            if (has_inderactive_console)
+            if (has_interactive_console)
                 std::cout << std::endl;
 
             const auto md5_checksum = md5.hexdigest();
@@ -84,8 +90,10 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
                     continue;
 
                 }
+            } else if (size == 0) {
+                spdlog::info("Empty file {}/{}", path, entry.name);
             } else {
-                spdlog::error("Cannot upload file {}", entry.name);
+                spdlog::error("Cannot upload file {}/{}", path,  entry.name);
                 sftp->close_file(file);
                 // std::cerr << "Cannot upload file " << entry.name << std::endl;
                 continue;
@@ -112,7 +120,7 @@ int main(int argc, char **argv) {
 
     const auto debian_frontend = getenv("DEBIAN_FRONTEND");
     if (debian_frontend != nullptr && strcmp(debian_frontend, "noninteractive") == 0) {
-        has_inderactive_console = false;
+        has_interactive_console = false;
     }
 
     ArgParser parser(argc, argv);

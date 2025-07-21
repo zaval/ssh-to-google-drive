@@ -347,7 +347,7 @@ FileChunkResponse GDriveAPI::upload_file_chunk(const std::string &upload_url, ch
     );
 
     if (r.status_code != 200 && r.status_code != 201 && r.status_code != 308) {
-        spdlog::error("Error uploading file chunk: {}", r.status_code);
+        spdlog::error("Error uploading file chunk: {}\n{}", r.status_code, r.text);
         // std::cerr << "Error uploading file chunk: " << r.status_code << std::endl << r.text << std::endl;
         return {false, ""};
     }
