@@ -83,10 +83,16 @@ std::vector<SFTPEntry> SFTPClient::ls(const std::string &path) {
             sftp_attributes_free(attributes);
             continue;
         }
+
+        if (std::ranges::find(processed_files, std::string(path + "/" + attributes->name)) != processed_files.end()) {
+            spdlog::info("File {}/{} was already processed", path, attributes->name);
+            sftp_attributes_free(attributes);
+            continue;
+        }
+
         // if (std::ranges::find(ignore_files, attributes->name) != ignore_files.end()) {
         if (std::ranges::find_if(ignore_files, [&attributes](const std::string &val) {
-            std::regex self_regex(val,
-            std::regex_constants::ECMAScript | std::regex_constants::icase);
+            const std::regex self_regex(val, std::regex_constants::ECMAScript | std::regex_constants::icase);
             return std::regex_search(attributes->name, self_regex);
         }) != ignore_files.end()) {
             spdlog::info("Ignore file: {}", attributes->name);
@@ -147,6 +153,10 @@ void SFTPClient::read_file(long &read_bytes, const sftp_file &file, char *buffer
 
 void SFTPClient::set_ignore_files(const std::vector<std::string> &ignore_files) {
     this->ignore_files = ignore_files;
+}
+
+void SFTPClient::set_processed_files(const std::vector<std::string> &files) {
+    this->processed_files = files;
 }
 
 bool SFTPClient::connect_to_host() const {

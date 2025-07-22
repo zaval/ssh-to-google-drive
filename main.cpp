@@ -118,6 +118,19 @@ int main(int argc, char **argv) {
     spdlog::logger logger("ssh_to_gdrive", {console_sink, file_sink});
     spdlog::set_default_logger(std::make_shared<spdlog::logger>(logger));
 
+    std::string line;
+    std::vector<std::string> processed_files;
+    std::map<std::string, std::string> known_md5;
+    std::ifstream md5_file("md5files.txt");
+    while (std::getline(md5_file, line)) {
+        size_t tab_pos = line.find('\t');
+        if (tab_pos != std::string::npos) {
+            const auto path = line.substr(tab_pos + 1);
+            processed_files.push_back(path);
+        }
+    }
+
+
     const auto debian_frontend = getenv("DEBIAN_FRONTEND");
     if (debian_frontend != nullptr && strcmp(debian_frontend, "noninteractive") == 0) {
         has_interactive_console = false;
@@ -143,6 +156,7 @@ int main(int argc, char **argv) {
 
     const auto sftp = std::make_unique<SFTPClient>(options.ssh_host, options.ssh_port);
     sftp->set_ignore_files(options.ignore);
+    sftp->set_processed_files(processed_files);
     auto res = false;
     if (options.ssh_password.empty()) {
         res = sftp->connect(options.ssh_user, options.ssh_keyfile, options.ssh_keyfile_password);

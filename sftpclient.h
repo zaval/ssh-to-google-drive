@@ -138,9 +138,22 @@ public:
      * be excluded from various file manipulation or processing tasks. Patterns
      * can be specified using wildcard characters or other suitable matching criteria.
      *
-     * @param patterns A list of strings representing file patterns to ignore during operations.
+     * @param ignore_files A list of strings representing file regexp to ignore during operations.
      */
     void set_ignore_files(const std::vector<std::string> &ignore_files);
+
+
+    /**
+     * @brief Sets the list of files that have been processed.
+     *
+     * This function updates the internal record of processed files. It is
+     * typically used to mark specific files as processed during batch operations
+     * or after a certain task has completed. The processed files are stored for
+     * further reference or to prevent redundant processing.
+     *
+     * @param files A collection of file paths representing the files that have been processed.
+     */
+    void set_processed_files(const std::vector<std::string> &files);
 
 private:
     ssh_session session;
@@ -150,6 +163,7 @@ private:
     bool init_sftp();
     sftp_session sftp;
     std::vector<std::string> ignore_files;
+    std::vector<std::string> processed_files;
 };
 
 
