@@ -456,7 +456,7 @@ bool GDriveAPI::authorize_from_service_account() {
         token_expires_at = std::chrono::system_clock::now() + std::chrono::seconds(response_json["expires_in"].get<long>() - 30); // Subtract 30s as a buffer
     }
     refresh_token = "SERVICE_ACCOUNT_REFRESH_TOKEN";
-    save_token();_LIBCPP_AVAILABILITY_HAS_VERBOSE_ABORT
+    save_token();
     return true;
 
 }
