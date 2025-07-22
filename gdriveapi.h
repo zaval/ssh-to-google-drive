@@ -3,6 +3,7 @@
 
 #include <string>
 #include <nlohmann/json.hpp>
+#include <mutex>
 
 
 const std::string GOOGLE_DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code";
@@ -197,6 +198,8 @@ private:
     std::string client_id_;
     std::string client_secret_;
     std::string service_account_;
+
+    std::mutex token_mutex;
 };
 
 

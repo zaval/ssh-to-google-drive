@@ -31,6 +31,7 @@ struct ProgramOptions {
     std::string ssh_folder;
     std::string gdrive_folder;
     std::vector<std::string> ignore;
+    int threads = 1;
 
     void save_config() const {
         nlohmann::json config;
@@ -80,6 +81,8 @@ struct ProgramOptions {
                 service_account_file = config["service_account_file"].get<std::string>();
             if (config.contains("ignore"))
                 ignore = config["ignore"];
+            if (config.contains("threads"))
+                threads = config["threads"].get<int>();
         }
 
         char *env = getenv("CLIENT_ID");

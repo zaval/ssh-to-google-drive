@@ -40,6 +40,8 @@ ProgramOptions ArgParser::parse() const {
             options.ssh_keyfile_password = arg.substr(23);
         } else if (arg.find("--ignore=") == 0) {
             options.ignore.push_back(arg.substr(9));
+        } else if (arg.find("--threads=") == 0) {
+            options.threads = std::stoi(arg.substr(10));
         } else {
             spdlog::info("Unknown argument: {}", arg);
             // std::cout << "Unknown argument: " << arg << std::endl;

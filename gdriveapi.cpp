@@ -19,6 +19,7 @@ GDriveAPI::GDriveAPI(const std::string &service_account_file):
 
 bool GDriveAPI::authorize() {
 
+    std::lock_guard lock(token_mutex);
     load_token();
     if (!access_token.empty() && !is_token_expired()) {
         return true;
@@ -66,6 +67,9 @@ bool GDriveAPI::authorize() {
 }
 
 bool GDriveAPI::refresh_access_token() {
+
+    std::lock_guard lock(token_mutex);
+
     if (refresh_token.empty()) {
         spdlog::error("Error: No refresh token available. Please re-authorize.");
         // std::cerr << "Error: No refresh token available. Please re-authorize." << std::endl;
@@ -410,6 +414,8 @@ std::string GDriveAPI::get_file_md5(const std::string &file_id) {
 }
 
 bool GDriveAPI::authorize_from_service_account() {
+    std::lock_guard lock(token_mutex);
+
     std::ifstream key_file(service_account_);
     if (!key_file.is_open()) {
         spdlog::error("Error: Could not open service account key file.");
@@ -450,6 +456,7 @@ bool GDriveAPI::authorize_from_service_account() {
         token_expires_at = std::chrono::system_clock::now() + std::chrono::seconds(response_json["expires_in"].get<long>() - 30); // Subtract 30s as a buffer
     }
     refresh_token = "SERVICE_ACCOUNT_REFRESH_TOKEN";
+    save_token();_LIBCPP_AVAILABILITY_HAS_VERBOSE_ABORT
     return true;
 
 }
