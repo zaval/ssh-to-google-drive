@@ -189,6 +189,7 @@ private:
     void save_token();
     void load_token();
     bool is_token_expired() const;
+    void update_tokens(const std::string& access_token, const std::string& refresh_token, const std::chrono::time_point<std::chrono::system_clock>& expires_at);
 
 
     std::string access_token;
