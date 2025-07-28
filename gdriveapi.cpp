@@ -184,6 +184,13 @@ std::string GDriveAPI::create_folder(const std::string &folder_name, const std::
             return "";
         }
     }
+
+    auto existing_folder = find_children_folder(parent_id, folder_name);
+    if (!existing_folder.empty()) {
+        spdlog::info("Folder {} already exists. Returning existing folder id.", folder_name);
+        return existing_folder;
+    }
+
     nlohmann::json payload = {
         {"name", folder_name},
         {"mimeType", "application/vnd.google-apps.folder"},
@@ -492,4 +499,31 @@ nlohmann::json GDriveAPI::poll_for_token(const std::string &device_code) {
             }
         }
     }
+}
+
+std::string GDriveAPI::find_children_folder(const std::string &parent_id, const std::string &name) const {
+    const auto query = "'" + parent_id + "' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false and name = '" + name + "'";
+
+    cpr::Response r = cpr::Get(
+        cpr::Url{"https://www.googleapis.com/drive/v3/files/"},
+        cpr::Header{{"Authorization", "Bearer " + this->access_token}},
+        cpr::Header{{"Accept", "application/json"}},
+        cpr::Parameters{
+            {"q", query},
+            {"fields", "files(id, name)"}
+        }
+    );
+
+    if (r.status_code != 200) {
+        return "";
+    }
+
+    nlohmann::json response_json = nlohmann::json::parse(r.text);
+
+    if (response_json["files"].empty()) {
+        return "";
+    }
+
+    return response_json["files"][0]["id"].get<std::string>();
+
 }

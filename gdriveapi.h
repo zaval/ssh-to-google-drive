@@ -186,6 +186,7 @@ public:
 private:
     nlohmann::json get_device_and_user_codes();
     nlohmann::json poll_for_token(const std::string& device_code);
+    std::string find_children_folder(const std::string &parent_id, const std::string &name) const;
     void save_token();
     void load_token();
     bool is_token_expired() const;
