@@ -101,19 +101,18 @@ void file_uploader(const ProgramOptions &options, GDriveAPI *gapi) {
             FileChunkResponse upload_chunk_response{};
             while (offset < task.size) {
                 read_bytes = 0;
-                auto buffer = new char[chunk_size];
-                sftp->read_file(read_bytes, file, buffer, chunk_size);
-                upload_chunk_response = gapi->upload_file_chunk(upload_url, buffer, read_bytes, offset, task.size);
+                auto buffer = std::make_unique<char[]>(chunk_size);
+                sftp->read_file(read_bytes, file, buffer.get(), chunk_size);
+                upload_chunk_response = gapi->upload_file_chunk(upload_url, buffer.get(), read_bytes, offset, task.size);
                 offset += read_bytes;
                 if (has_interactive_console) {
                     auto percent = offset * 100 / task.size;
                     std::cout << "\r\x1b[2K" << task.name << " " << percent << "% (" << offset << "/" << task.size << ")" << std::flush;
                 }
 
-                if (!md5.update(buffer, read_bytes)) {
+                if (!md5.update(buffer.get(), read_bytes)) {
                     spdlog::error("[{}] Cannot update md5 for {}", tid, task.name);
                 }
-                delete[] buffer;
             }
             if (has_interactive_console)
                 std::cout << std::endl;
@@ -265,6 +264,9 @@ int main(int argc, char **argv) {
     }
 
     process_sftp_directory(sftp.get(), ".", gapi.get(), gdrive_folder);
+    is_running = false;
+    tasks_queue_cv.notify_all(); // Wake up all waiting threads
+
 
     for (auto& thread : upload_threads) {
         thread.join();

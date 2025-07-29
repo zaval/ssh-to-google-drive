@@ -118,6 +118,7 @@ std::vector<SFTPEntry> SFTPClient::ls(const std::string &path) {
         );
     }
     sftp_attributes_free(attributes);
+    sftp_closedir(dir);
 
     return entries;
 }
