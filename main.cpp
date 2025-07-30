@@ -46,19 +46,6 @@ void file_uploader(const ProgramOptions &options, GDriveAPI *gapi) {
     const auto thread_id = std::this_thread::get_id();
     const auto tid = std::hash<std::thread::id>{}(thread_id) % options.threads + 1;
 
-    const auto sftp = std::make_unique<SFTPClient>(options.ssh_host, options.ssh_port);
-    auto res = false;
-    if (options.ssh_password.empty()) {
-        res = sftp->connect(options.ssh_user, options.ssh_keyfile, options.ssh_keyfile_password);
-    } else {
-        res = sftp->connect(options.ssh_user, options.ssh_password);
-    }
-
-    if (!res) {
-        spdlog::error("[{}] Cannot connect to {}", tid, options.ssh_host);
-        return;
-    }
-
     while (is_running || !tasks_queue.empty()) {
         std::unique_lock<std::mutex> lock(tasks_queue_mutex);
         tasks_queue_cv.wait(lock, [] { return !tasks_queue.empty() || !is_running; });
@@ -67,6 +54,19 @@ void file_uploader(const ProgramOptions &options, GDriveAPI *gapi) {
             Task task = tasks_queue.front();
             tasks_queue.pop();
             lock.unlock();
+
+            const auto sftp = std::make_unique<SFTPClient>(options.ssh_host, options.ssh_port);
+            auto res = false;
+            if (options.ssh_password.empty()) {
+                res = sftp->connect(options.ssh_user, options.ssh_keyfile, options.ssh_keyfile_password);
+            } else {
+                res = sftp->connect(options.ssh_user, options.ssh_password);
+            }
+
+            if (!res) {
+                spdlog::error("[{}] Cannot connect to {}", tid, options.ssh_host);
+                return;
+            }
 
 
             // BEGIN WORKER
@@ -266,7 +266,7 @@ int main(int argc, char **argv) {
     process_sftp_directory(sftp.get(), ".", gapi.get(), gdrive_folder);
     is_running = false;
     tasks_queue_cv.notify_all(); // Wake up all waiting threads
-
+    spdlog::info("Finished processing files");
 
     for (auto& thread : upload_threads) {
         thread.join();
