@@ -3,6 +3,7 @@
 #include <libssh/sftp.h>
 #include <filesystem>
 #include <fstream>
+#include <semaphore>
 #include <sys/fcntl.h>
 
 #include "argparser.h"
@@ -14,11 +15,138 @@
 
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
+#include <thread>
+#include <queue>
+
+#include "spdlog/fmt/bundled/std.h"
 
 namespace fs = std::filesystem;
 
 constexpr size_t chunk_size = 512 * 1024;
 bool has_interactive_console = true;
+
+
+struct Task {
+    std::string name;
+    std::string ssh_folder;
+    std::string gdrive_folder;
+    uint64_t size;
+};
+
+std::queue<Task> tasks_queue;
+std::mutex tasks_queue_mutex;
+std::condition_variable tasks_queue_cv;
+std::atomic<bool> is_running{true};
+std::counting_semaphore semaphore(100);
+
+void file_uploader(const ProgramOptions &options, GDriveAPI *gapi) {
+
+    auto md5_file = spdlog::get("md5file_logger");
+
+    const auto thread_id = std::this_thread::get_id();
+    const auto tid = std::hash<std::thread::id>{}(thread_id) % options.threads + 1;
+
+    while (is_running || !tasks_queue.empty()) {
+        std::unique_lock<std::mutex> lock(tasks_queue_mutex);
+        tasks_queue_cv.wait(lock, [] { return !tasks_queue.empty() || !is_running; });
+
+        if (!tasks_queue.empty()) {
+            Task task = tasks_queue.front();
+            tasks_queue.pop();
+            lock.unlock();
+
+            const auto sftp = std::make_unique<SFTPClient>(options.ssh_host, options.ssh_port);
+            auto res = false;
+            if (options.ssh_password.empty()) {
+                res = sftp->connect(options.ssh_user, options.ssh_keyfile, options.ssh_keyfile_password);
+            } else {
+                res = sftp->connect(options.ssh_user, options.ssh_password);
+            }
+
+            if (!res) {
+                spdlog::error("[{}] Cannot connect to {}", tid, options.ssh_host);
+                return;
+            }
+
+
+            // BEGIN WORKER
+
+
+            spdlog::info("[{}] Processing file {}/{} size: {}", tid, task.ssh_folder, task.name, std::to_string(task.size));
+
+            if (task.size == 0) {
+                spdlog::info("[{}] Empty file {}/{}", tid, task.ssh_folder, task.name);
+                gapi->create_file(task.name, "text/plain", task.gdrive_folder);
+                continue;
+            }
+
+            const auto md5 = MD5();
+            size_t offset = 0;
+            long read_bytes = 0;
+
+            const auto upload_url = gapi->create_file_for_upload(task.name, task.gdrive_folder);
+            if (upload_url.empty()) {
+                spdlog::error("[{}] Cannot create upload url for {}/{}", tid, task.ssh_folder, task.name);
+                continue;
+            }
+
+            const auto file_path = task.ssh_folder + "/" + task.name;
+
+            auto file = sftp->open_file(file_path,O_RDONLY);
+            if (file == nullptr) {
+                spdlog::error("[{}] Cannot open file {}", tid, file_path);
+                return;
+            }
+
+            FileChunkResponse upload_chunk_response{};
+            while (offset < task.size) {
+                read_bytes = 0;
+                auto buffer = std::make_unique<char[]>(chunk_size);
+                sftp->read_file(read_bytes, file, buffer.get(), chunk_size);
+                upload_chunk_response = gapi->upload_file_chunk(upload_url, buffer.get(), read_bytes, offset, task.size);
+                offset += read_bytes;
+                if (has_interactive_console) {
+                    auto percent = offset * 100 / task.size;
+                    std::cout << "\r\x1b[2K" << task.name << " " << percent << "% (" << offset << "/" << task.size << ")" << std::flush;
+                }
+
+                if (!md5.update(buffer.get(), read_bytes)) {
+                    spdlog::error("[{}] Cannot update md5 for {}", tid, task.name);
+                }
+            }
+            if (has_interactive_console)
+                std::cout << std::endl;
+
+            const auto md5_checksum = md5.hexdigest();
+            if (upload_chunk_response.success && !upload_chunk_response.file_id.empty()) {
+                const auto file_md5 = gapi->get_file_md5(upload_chunk_response.file_id);
+                if (file_md5 == md5_checksum) {
+                    spdlog::info("[{}] Checksum correct {}/{}", tid, task.ssh_folder, task.name);
+                } else {
+                    spdlog::error("[{}] MD5 mismatch for {}/{}: {} != {}", tid, task.ssh_folder, task.name, file_md5, md5_checksum);
+                    sftp->close_file(file);
+                    continue;
+
+                }
+            } else if (task.size == 0) {
+                spdlog::info("[{}] Empty file {}/{}", tid, task.ssh_folder, task.name);
+            } else {
+                spdlog::error("[{}] Cannot upload file {}/{}", tid, task.ssh_folder,  task.name);
+                sftp->close_file(file);
+                // std::cerr << "Cannot upload file " << entry.name << std::endl;
+                continue;
+            }
+
+            sftp->close_file(file);
+            md5_file->info("{}\t{}", md5_checksum, file_path);
+
+            // END WORKER
+
+
+            semaphore.release();
+        }
+    }
+}
 
 
 void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI* gapi, const std::string& gdrive_folder) {
@@ -30,77 +158,14 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
         if (entry.type == DIRECTORY_TYPE) {
             directories.push_back(path + "/" + entry.name);
         } else {
-
-            const auto size = entry.size;
-            spdlog::info("Processing file {}/{} size: {}", path, entry.name, std::to_string(size));
-
-            if (size == 0) {
-                spdlog::info("Empty file {}/{}", path, entry.name);
-                gapi->create_file(entry.name, "text/plain", gdrive_folder);
-                continue;
+            semaphore.acquire();
+            Task task{entry.name, path, gdrive_folder, entry.size};
+            {
+                std::lock_guard<std::mutex> lock(tasks_queue_mutex);
+                tasks_queue.push(task);
             }
-
-            const auto md5 = MD5();
-            size_t offset = 0;
-            long read_bytes = 0;
-
-            const auto upload_url = gapi->create_file_for_upload(entry.name, gdrive_folder);
-            if (upload_url.empty()) {
-                spdlog::error("Cannot create upload url for {}/{}", path, entry.name);
-                // std::cerr << "Error creating upload url" << std::endl;
-                continue;
-            }
-
-            const auto file_path = path + "/" + entry.name;
-
-            auto file = sftp->open_file(file_path,O_RDONLY);
-            if (file == nullptr) {
-                spdlog::error("Cannot open file {}", file_path);
-                return;
-            }
-            FileChunkResponse upload_chunk_response{};
-            while (offset < size) {
-                read_bytes = 0;
-                auto buffer = new char[chunk_size];
-                sftp->read_file(read_bytes, file, buffer, chunk_size);
-                upload_chunk_response = gapi->upload_file_chunk(upload_url, buffer, read_bytes, offset, size);
-                offset += read_bytes;
-                if (has_interactive_console) {
-                    auto percent = offset * 100 / size;
-                    std::cout << "\r\x1b[2K" << entry.name << " " << percent << "% (" << offset << "/" << size << ")" << std::flush;
-                }
-
-                if (!md5.update(buffer, read_bytes)) {
-                    spdlog::error("Cannot update md5 for {}", entry.name);
-                    // std::cerr << "cannot update md5" << std::endl;
-                }
-                delete[] buffer;
-            }
-            if (has_interactive_console)
-                std::cout << std::endl;
-
-            const auto md5_checksum = md5.hexdigest();
-            if (upload_chunk_response.success && !upload_chunk_response.file_id.empty()) {
-                const auto file_md5 = gapi->get_file_md5(upload_chunk_response.file_id);
-                if (file_md5 == md5_checksum) {
-                    spdlog::info("Checksum correct {}/{}", path, entry.name);
-                } else {
-                    spdlog::error("MD5 mismatch for {}/{}: {} != {}", path, entry.name, file_md5, md5_checksum);
-                    sftp->close_file(file);
-                    continue;
-
-                }
-            } else if (size == 0) {
-                spdlog::info("Empty file {}/{}", path, entry.name);
-            } else {
-                spdlog::error("Cannot upload file {}/{}", path,  entry.name);
-                sftp->close_file(file);
-                // std::cerr << "Cannot upload file " << entry.name << std::endl;
-                continue;
-            }
-            sftp->close_file(file);
-            std::ofstream ofs("md5files.txt", std::ios::app);
-            ofs << md5_checksum << "\t" << path << "/" << entry.name << std::endl;
+            tasks_queue_cv.notify_one();
+            spdlog::info("Task added: {}/{}", path, entry.name);
         }
     }
 
@@ -118,6 +183,12 @@ int main(int argc, char **argv) {
     spdlog::logger logger("ssh_to_gdrive", {console_sink, file_sink});
     spdlog::set_default_logger(std::make_shared<spdlog::logger>(logger));
 
+    auto md5_file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("md5files.txt", false);
+    auto md5_file_logger = std::make_shared<spdlog::logger>("md5file_logger", md5_file_sink);
+    md5_file_logger->set_level(spdlog::level::info);
+    md5_file_logger->set_pattern("%v");
+    spdlog::register_logger(md5_file_logger);
+
     std::string line;
     std::vector<std::string> processed_files;
     std::map<std::string, std::string> known_md5;
@@ -129,7 +200,6 @@ int main(int argc, char **argv) {
             processed_files.push_back(path);
         }
     }
-
 
     const auto debian_frontend = getenv("DEBIAN_FRONTEND");
     if (debian_frontend != nullptr && strcmp(debian_frontend, "noninteractive") == 0) {
@@ -187,7 +257,19 @@ int main(int argc, char **argv) {
         }
     }
 
-    process_sftp_directory(sftp.get(), ".", gapi.get(), gdrive_folder);
 
+    std::vector<std::thread> upload_threads;
+    for (int i = 0; i < options.threads; ++i) {
+        upload_threads.emplace_back(file_uploader, options, gapi.get());
+    }
+
+    process_sftp_directory(sftp.get(), ".", gapi.get(), gdrive_folder);
+    is_running = false;
+    tasks_queue_cv.notify_all(); // Wake up all waiting threads
+    spdlog::info("Finished processing files");
+
+    for (auto& thread : upload_threads) {
+        thread.join();
+    }
     return 0;
 }

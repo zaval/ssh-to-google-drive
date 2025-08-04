@@ -3,6 +3,7 @@
 
 #include <string>
 #include <nlohmann/json.hpp>
+#include <mutex>
 
 
 const std::string GOOGLE_DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code";
@@ -185,9 +186,11 @@ public:
 private:
     nlohmann::json get_device_and_user_codes();
     nlohmann::json poll_for_token(const std::string& device_code);
+    std::string find_children_folder(const std::string &parent_id, const std::string &name) const;
     void save_token();
     void load_token();
     bool is_token_expired() const;
+    void update_tokens(const std::string& access_token, const std::string& refresh_token, const std::chrono::time_point<std::chrono::system_clock>& expires_at);
 
 
     std::string access_token;
@@ -197,6 +200,8 @@ private:
     std::string client_id_;
     std::string client_secret_;
     std::string service_account_;
+
+    std::mutex token_mutex;
 };
 
 

@@ -48,6 +48,8 @@ add_executable(ssh_to_gdrive main.cpp
         sftpclient.cpp
         sftpclient.h)
 
+find_package(Threads REQUIRED)
+
 target_link_libraries(ssh_to_gdrive PRIVATE
         ${LIBSSH_LIBRARIES}
         cpr::cpr
@@ -55,11 +57,14 @@ target_link_libraries(ssh_to_gdrive PRIVATE
         jwt-cpp::jwt-cpp
         OpenSSL::Crypto
         spdlog
+        Threads::Threads
 )
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(ssh_to_gdrive PRIVATE -Wno-deprecated-declarations)
-endif ()
+
+
+#if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+#    target_compile_options(ssh_to_gdrive PRIVATE -Wno-deprecated-declarations)
+#endif ()
 
 
 set_target_properties(ssh_to_gdrive PROPERTIES

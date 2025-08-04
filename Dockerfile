@@ -3,7 +3,7 @@ FROM ubuntu:24.04 AS build
 ENV DEBIAN_FRONTEND=noninteractive
 COPY . /app
 WORKDIR /app
-RUN apt-get update && apt-get install -y build-essential cmake git libssl-dev libidn2-dev libz-dev libbrotli-dev libzstd-dev libnghttp2-dev libpsl-dev libssh-dev
+RUN apt-get update && apt-get install -y gcc g++ cmake git libssl-dev libidn2-dev libz-dev libbrotli-dev libzstd-dev libnghttp2-dev libpsl-dev libssh-dev
 RUN cmake -DCMAKE_BUILD_TYPE=Release -S . -B build && \
     cmake --build build -j$(nproc --all) && \
     cmake --install build
