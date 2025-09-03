@@ -3,6 +3,8 @@ project(ssh_to_gdrive)
 
 set(CMAKE_CXX_STANDARD 20)
 
+include(FeatureSummary)
+
 include(FetchContent)
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git
         GIT_TAG 1.12.0
@@ -79,3 +81,7 @@ install(TARGETS ssh_to_gdrive cpr spdlog
 )
 
 
+feature_summary(
+        FATAL_ON_MISSING_REQUIRED_PACKAGES
+        WHAT ALL
+)

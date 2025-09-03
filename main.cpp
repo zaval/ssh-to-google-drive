@@ -148,8 +148,79 @@ void file_uploader(const ProgramOptions &options, GDriveAPI *gapi) {
     }
 }
 
+nlohmann::json load_local_tree(const std::string &path) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        spdlog::error("Cannot open file {}", path);
+        return {};
+    }
+    nlohmann::json json = nlohmann::json::parse(file);
+    return json;
 
-void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI* gapi, const std::string& gdrive_folder) {
+}
+
+void process_local_tree(const std::string &path, const nlohmann::json tree_json) {
+    spdlog::info("{}", path);
+    for (const auto& obj : tree_json) {
+        // spdlog::info("Processing value {}",obj.dump(4));
+        if (!obj.is_object()) {
+            spdlog::error("Value is not an object");
+            continue;
+        }
+        if (obj["type"].get<std::string>() == "file") {
+            spdlog::info("{}/{}", path, obj["name"].get<std::string>());
+        }
+        if (obj["type"].get<std::string>() == "directory") {
+            const auto new_path = path.empty() ? obj["name"].get<std::string>() : path + "/" + obj["name"].get<std::string>();
+            if (obj.contains("contents")) {
+                process_local_tree(new_path, obj["contents"]);
+            }
+
+        }
+
+        // if (value.is_object()) {
+        //     const auto new_path = path + "/" + key;
+        //     process_local_tree(new_path, value);
+        // } else if (value.is_string()) {
+        //     const auto file_path = path + "/" + key;
+        //     const auto file_size = fs::file_size(file_path);
+        //     const auto md5 = MD5();
+        //     std::ifstream file(file_path, std::ios::binary);
+        //     if (!file.is_open()) {}
+        // }
+    }
+}
+
+void load_sftp_tree(SFTPClient *sftp, const std::string &path, std::vector<std::string> &files) {
+    spdlog::info("Opening directory {}", path);
+    const auto entries = sftp->ls(path);
+    for (const auto &entry: entries) {
+        if (entry.type == FILE_TYPE) {
+            files.push_back(path + "/" + entry.name);
+        } else {
+            load_sftp_tree(sftp, path + "/" + entry.name, files);
+            // files.insert(files.end(), load_sftp_tree(sftp, path + "/" + entry.name).begin(), load_sftp_tree(sftp, path + "/" + entry.name).end());
+        }
+    }
+}
+
+
+void process_sftp_directory(const ProgramOptions &options, const std::vector<std::string> &processed_files, const std::string &path, GDriveAPI* gapi, const std::string& gdrive_folder) {
+    const auto sftp = std::make_unique<SFTPClient>(options.ssh_host, options.ssh_port);
+    sftp->set_ignore_files(options.ignore);
+    sftp->set_processed_files(processed_files);
+    auto res = false;
+    if (options.ssh_password.empty()) {
+        res = sftp->connect(options.ssh_user, options.ssh_keyfile, options.ssh_keyfile_password);
+    } else {
+        res = sftp->connect(options.ssh_user, options.ssh_password);
+    }
+
+    if (!res) {
+        spdlog::error("Cannot connect to {}", options.ssh_host);
+        // std::cerr << "Cannot connect to " << options.ssh_host << std::endl;
+        return;
+    }
     const auto entries = sftp->ls(path);
     spdlog::info("Processing directory {}", path);
 
@@ -171,7 +242,7 @@ void process_sftp_directory(SFTPClient *sftp, const std::string &path, GDriveAPI
 
     for (const auto& dirname : directories) {
         const auto new_gdrive_folder = gapi->create_folder(fs::path(dirname).filename(), gdrive_folder);
-        process_sftp_directory(sftp, dirname, gapi, new_gdrive_folder);
+        process_sftp_directory(options, processed_files, dirname, gapi, new_gdrive_folder);
     }
 }
 
@@ -224,21 +295,11 @@ int main(int argc, char **argv) {
     // options.save_config();
     // return 0;
 
-    const auto sftp = std::make_unique<SFTPClient>(options.ssh_host, options.ssh_port);
-    sftp->set_ignore_files(options.ignore);
-    sftp->set_processed_files(processed_files);
-    auto res = false;
-    if (options.ssh_password.empty()) {
-        res = sftp->connect(options.ssh_user, options.ssh_keyfile, options.ssh_keyfile_password);
-    } else {
-        res = sftp->connect(options.ssh_user, options.ssh_password);
-    }
 
-    if (!res) {
-        spdlog::error("Cannot connect to {}", options.ssh_host);
-        // std::cerr << "Cannot connect to " << options.ssh_host << std::endl;
-        return -1;
-    }
+
+    const auto tree_json = load_local_tree("../tree.json");
+
+    process_local_tree("", tree_json);
 
     std::unique_ptr<GDriveAPI> gapi;
 
@@ -263,7 +324,7 @@ int main(int argc, char **argv) {
         upload_threads.emplace_back(file_uploader, options, gapi.get());
     }
 
-    process_sftp_directory(sftp.get(), ".", gapi.get(), gdrive_folder);
+    process_sftp_directory(options, processed_files, ".", gapi.get(), gdrive_folder);
     is_running = false;
     tasks_queue_cv.notify_all(); // Wake up all waiting threads
     spdlog::info("Finished processing files");

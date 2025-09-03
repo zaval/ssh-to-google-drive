@@ -161,6 +161,11 @@ void SFTPClient::set_processed_files(const std::vector<std::string> &files) {
 }
 
 bool SFTPClient::connect_to_host() const {
+
+    ssh_options_set(session, SSH_OPTIONS_COMPRESSION, "yes");
+    // const auto verbocity = SSH_LOG_FUNCTIONS;
+    // ssh_options_set(session, SSH_OPTIONS_LOG_VERBOSITY, &verbocity);
+
     auto rc = ssh_connect(session);
     if (rc != SSH_OK)
     {

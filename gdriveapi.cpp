@@ -447,8 +447,8 @@ nlohmann::json GDriveAPI::get_device_and_user_codes() {
         cpr::Url{GOOGLE_DEVICE_CODE_URL},
         cpr::Payload{
             {"client_id", client_id_},
-            // {"scope", "https://www.googleapis.com/auth/drive.file"}
-            {"scope", "https://www.googleapis.com/auth/drive"}
+            {"scope", "https://www.googleapis.com/auth/drive.file"}
+            // {"scope", "https://www.googleapis.com/auth/drive"}
         }
     );
 
